@@ -1,19 +1,16 @@
-import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "dataset"
-CACHE_DIR = BASE_DIR / "models_cache"
 
 PRIMARY_DATASET_PATH = DATA_DIR / "Dataset.csv"
 FAST_DATASET_PATH = DATA_DIR / "food_delivery_times.csv"
 SECONDARY_DATASET_PATH = DATA_DIR / "food_delivery_orders.csv"
-
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_PATH = DATA_DIR / "temp_uploaded.csv"
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
-DELAY_THRESHOLD_MINUTES = 35
+DELAY_THRESHOLD_MINUTES = 30
 
 NUMERICAL_FEATURES = [
     "delivery_person_age",

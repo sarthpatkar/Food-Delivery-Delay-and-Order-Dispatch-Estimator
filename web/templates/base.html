@@ -3,22 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Food Delivery Delay & Dispatch Estimator{% endblock %}</title>
+    <title>{% block title %}Delivery Delay Estimator{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Plotly JS CDN for interactive client-side graphs -->
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    {% block head %}{% endblock %}
 </head>
 <body>
     <header class="navbar">
         <div class="nav-container">
-            <div class="nav-brand">
-                <span class="brand-title">LogiPulse AI</span>
-                <span class="brand-subtitle">Food Delivery Delay & Dispatch Estimator</span>
-            </div>
+            <a href="/" class="brand">Delivery Delay Estimator</a>
             <nav class="nav-links">
-                <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Order Predictor & A* Dispatch</a>
-                <a href="/retrain" class="nav-link {% if request.path == '/retrain' %}active{% endif %}">Dynamic Retraining Studio</a>
-                <a href="/explain" class="nav-link {% if request.path == '/explain' %}active{% endif %}">Backend & Algorithm Mechanics</a>
+                <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Predict</a>
+                <a href="/retrain" class="nav-link {% if request.path == '/retrain' %}active{% endif %}">Retrain</a>
+                <a href="/explain" class="nav-link {% if request.path == '/explain' %}active{% endif %}">Models</a>
             </nav>
         </div>
     </header>
@@ -28,10 +25,7 @@
     </main>
 
     <footer class="footer">
-        <div class="footer-container">
-            <p>AI/ML Lab Mini Project | Syllabus Modules 2, 3, 4, 5, 6 | Built with Python, Scikit-Learn & Flask</p>
-            <p class="dataset-meta">Trained on Official 45,584-row Kaggle Food Delivery Benchmark Dataset</p>
-        </div>
+        AI/ML lab mini project &middot; Kaggle food delivery dataset, 45,584 orders
     </footer>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

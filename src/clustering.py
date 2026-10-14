@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
@@ -18,9 +17,7 @@ class DeliveryClusterAnalyzer:
         self.explained_variance = []
 
     def compute_elbow_curve(self, X_scaled, k_range=range(2, 9)):
-        sample_size = min(6000, len(X_scaled))
-        X_sample = X_scaled.iloc[:sample_size] if hasattr(X_scaled, "iloc") else X_scaled[:sample_size]
-
+        X_sample = X_scaled.iloc[:6000]
         elbow_results = []
         for k in k_range:
             km = KMeans(n_clusters=k, random_state=RANDOM_STATE, n_init=5)
@@ -30,9 +27,8 @@ class DeliveryClusterAnalyzer:
         return elbow_results
 
     def fit_clusters_and_pca(self, X_scaled, raw_cleaned_df):
-        sample_size = min(6000, len(X_scaled))
-        X_sample = X_scaled.iloc[:sample_size] if hasattr(X_scaled, "iloc") else X_scaled[:sample_size]
-        raw_sample = raw_cleaned_df.iloc[:sample_size].copy()
+        X_sample = X_scaled.iloc[:6000]
+        raw_sample = raw_cleaned_df.loc[X_sample.index].copy()
 
         self.kmeans.fit(X_sample)
         self.cluster_labels = self.kmeans.labels_
@@ -46,18 +42,15 @@ class DeliveryClusterAnalyzer:
         raw_sample["pca_x"] = np.round(pca_transformed[:, 0], 3)
         raw_sample["pca_y"] = np.round(pca_transformed[:, 1], 3)
 
+        # K-Means label order is arbitrary, so name clusters by how slow they are
+        names = ["Short, quick runs", "Typical orders", "Long or congested runs"]
+        by_speed = raw_sample.groupby("cluster")["time_taken_min"].mean().sort_values().index
         profiles = []
-        cluster_names = {
-            0: "Express Transit Corridors",
-            1: "Standard Urban Delivery",
-            2: "Congested High-Delay Zones",
-        }
-
-        for c_id in range(self.n_clusters):
+        for rank, c_id in enumerate(by_speed):
             subset = raw_sample[raw_sample["cluster"] == c_id]
             profiles.append({
                 "cluster_id": int(c_id),
-                "name": cluster_names.get(c_id, f"Zone Cluster {c_id}"),
+                "name": names[rank] if rank < len(names) else f"Cluster {c_id}",
                 "order_count": int(len(subset)),
                 "avg_delivery_time": round(float(subset["time_taken_min"].mean()), 1),
                 "avg_distance_km": round(float(subset["distance_km"].mean()), 1),

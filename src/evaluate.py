@@ -13,6 +13,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 
+from src.config import RANDOM_STATE
+
 
 def compute_classification_metrics(model, X_test, y_test, model_name="Model"):
     y_pred = model.predict(X_test)
@@ -33,7 +35,7 @@ def compute_classification_metrics(model, X_test, y_test, model_name="Model"):
     fpr, tpr, _ = roc_curve(y_test, y_prob)
     roc_auc = float(auc(fpr, tpr))
 
-    # Downsample ROC points for clean web visualization
+    # Keep about 35 points so the chart payload stays small
     step = max(1, len(fpr) // 35)
     roc_points = [
         {"fpr": round(float(fpr[i]), 4), "tpr": round(float(tpr[i]), 4)}
@@ -78,10 +80,10 @@ def evaluate_suite(model_suite, X_test, y_test_reg, y_test_clf):
     )
 
     models_to_eval = [
-        (model_suite.rf_model, "Random Forest Classifier"),
-        (model_suite.tree_gini_model, "Decision Tree (Gini)"),
-        (model_suite.tree_entropy_model, "Decision Tree (Entropy)"),
-        (model_suite.logistic_model, "Logistic Regression"),
+        (model_suite.rf_model, "Random forest"),
+        (model_suite.tree_gini_model, "Decision tree (Gini)"),
+        (model_suite.tree_entropy_model, "Decision tree (entropy)"),
+        (model_suite.logistic_model, "Logistic regression"),
     ]
 
     clf_metrics = []
@@ -98,7 +100,7 @@ def evaluate_suite(model_suite, X_test, y_test_reg, y_test_clf):
 
 
 def run_cross_validation(model, X, y, cv_folds=5):
-    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=RANDOM_STATE)
     scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
     return {
         "fold_scores": [round(float(s) * 100, 2) for s in scores],

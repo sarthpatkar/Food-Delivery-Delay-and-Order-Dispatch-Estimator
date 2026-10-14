@@ -1,129 +1,117 @@
 {% extends "base.html" %}
 
-{% block title %}Backend & Algorithm Mechanics | LogiPulse AI{% endblock %}
+{% block title %}Models | Delivery Delay Estimator{% endblock %}
 
 {% block content %}
-<div class="page-container">
-    <div class="page-header">
-        <h1>Real-Time Backend & Algorithm Mechanics</h1>
-        <p class="page-description">
-            Complete transparency into the mathematical formulations, evaluation metrics, and unsupervised clustering structures operating in the backend. This page explains how training, testing, and optimization are executed in real time.
-        </p>
-    </div>
+{% set rf = metrics.classification[0] %}
+<div class="page-header">
+    <h1>Models and evaluation</h1>
+    <p class="page-description">
+        Computed from the currently loaded models. Scores use the held-out 20% test split.
+    </p>
+</div>
 
-    <!-- Section 1: Confusion Matrix & ROC-AUC -->
-    <div class="grid-2-col">
-        <div class="card">
-            <h2 class="card-title">1. Confusion Matrix Heatmap (Module 5)</h2>
-            <div id="confusion-matrix-chart" class="chart-container" style="height: 320px;"></div>
-            <div class="formula-box">
-                <p><strong>Formulas Executed in Backend:</strong></p>
-                <code>Accuracy = (TP + TN) / (TP + TN + FP + FN)</code><br>
-                <code>Precision = TP / (TP + FP)  |  Recall = TP / (TP + FN)</code><br>
-                <code>F1-Score = 2 * (Precision * Recall) / (Precision + Recall)</code>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2 class="card-title">2. Receiver Operating Characteristic (ROC-AUC)</h2>
-            <div id="roc-curve-chart" class="chart-container" style="height: 320px;"></div>
-            <div class="formula-box">
-                <p><strong>Model Discriminative Power:</strong></p>
-                <p>AUC = <strong>{{ metrics.classification[0].roc_auc }}</strong>. The curve maps Sensitivity (True Positive Rate) against (1 - Specificity) across 50 classification thresholds.</p>
-            </div>
+<div class="grid-2-col">
+    <div class="card">
+        <h2 class="card-title">Confusion matrix <span class="tag m5">Module 5</span></h2>
+        <div id="confusion-matrix-chart" class="chart"></div>
+        <div class="formula">
+            Random forest on {{ rf.confusion_matrix.tn + rf.confusion_matrix.fp + rf.confusion_matrix.fn + rf.confusion_matrix.tp }} test orders.
+            <code>accuracy  = (TP + TN) / all  = {{ rf.accuracy }}%
+precision = TP / (TP + FP)   = {{ rf.precision }}%
+recall    = TP / (TP + FN)   = {{ rf.recall }}%
+F1        = 2PR / (P + R)    = {{ rf.f1_score }}%</code>
+            {% if cv %}
+            5-fold stratified CV (Gini tree): {{ cv.fold_scores | join(', ') }}, mean {{ cv.mean_score }}% &plusmn; {{ cv.std_score }}.
+            {% endif %}
         </div>
     </div>
 
-    <!-- Section 2: Unsupervised Learning (K-Means Elbow & PCA) -->
-    <div class="grid-2-col" style="margin-top: 24px;">
-        <div class="card">
-            <h2 class="card-title">3. K-Means Elbow Curve (Module 4 Practical 1)</h2>
-            <div id="elbow-chart" class="chart-container" style="height: 320px;"></div>
-            <div class="formula-box">
-                <p><strong>Within-Cluster Sum of Squares (Inertia):</strong></p>
-                <code>WCSS = Sum_{j=1}^{k} Sum_{x in S_j} ||x - mu_j||^2</code>
-                <p>The inflection point (elbow) mathematically confirms <strong>k = 3</strong> as the optimal cluster partition.</p>
-            </div>
+    <div class="card">
+        <h2 class="card-title">ROC curve <span class="tag m5">Module 5</span></h2>
+        <div id="roc-curve-chart" class="chart"></div>
+        <div class="formula">
+            AUC = <strong>{{ rf.roc_auc }}</strong>. Each point is one probability threshold, plotting the true
+            positive rate against the false positive rate. A random guess follows the diagonal.
         </div>
+    </div>
+</div>
 
-        <div class="card">
-            <h2 class="card-title">4. PCA 2D Cluster Space (Module 4 Practical 2)</h2>
-            <div id="pca-scatter-chart" class="chart-container" style="height: 320px;"></div>
-            <div class="formula-box">
-                <p><strong>Dimensionality Reduction:</strong></p>
-                <p>Top 2 Eigenvectors capture <strong>{{ clusters.explained_variance[0] }}%</strong> and <strong>{{ clusters.explained_variance[1] }}%</strong> of total dataset variance.</p>
-            </div>
+<div class="grid-2-col mt">
+    <div class="card">
+        <h2 class="card-title">K-Means elbow <span class="tag m4">Module 4</span></h2>
+        <div id="elbow-chart" class="chart"></div>
+        <div class="formula">
+            <code>WCSS = sum over clusters j, sum over x in S_j of ||x - mu_j||^2</code>
+            There is no sharp elbow here; the drop eases a little after k = 3. Three groups also read cleanly as quick, typical and long runs, so k = 3 is used.
         </div>
     </div>
 
-    <!-- Cluster Profiles Table -->
-    <div class="card" style="margin-top: 24px;">
-        <h2 class="card-title">K-Means Discovered Operational Delivery Zones</h2>
+    <div class="card">
+        <h2 class="card-title">Clusters in 2D (PCA) <span class="tag m4">Module 4</span></h2>
+        <div id="pca-scatter-chart" class="chart"></div>
+        <div class="formula">
+            The first two principal components keep {{ clusters.explained_variance[0] }}% and
+            {{ clusters.explained_variance[1] }}% of the variance.
+        </div>
+    </div>
+</div>
+
+<div class="card mt">
+    <h2 class="card-title">Cluster profiles</h2>
+    <div class="table-wrap">
         <table class="table-compact">
             <thead>
-                <tr>
-                    <th>Cluster ID</th>
-                    <th>Identified Profile</th>
-                    <th>Orders Classified</th>
-                    <th>Mean Delivery Time</th>
-                    <th>Mean Distance</th>
-                    <th>Mean Courier Rating</th>
-                </tr>
+                <tr><th>Cluster</th><th>Orders</th><th>Mean time</th><th>Mean distance</th><th>Mean rider rating</th></tr>
             </thead>
             <tbody>
                 {% for prof in clusters.profiles %}
                 <tr>
-                    <td><strong>Cluster {{ prof.cluster_id }}</strong></td>
                     <td>{{ prof.name }}</td>
                     <td>{{ prof.order_count }}</td>
                     <td>{{ prof.avg_delivery_time }} min</td>
                     <td>{{ prof.avg_distance_km }} km</td>
-                    <td>{{ prof.avg_rating }} / 5.0</td>
+                    <td>{{ prof.avg_rating }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+</div>
 
-    <!-- Section 3: Feature Importance & Decision Tree Rules -->
-    <div class="grid-2-col" style="margin-top: 24px;">
-        <div class="card">
-            <h2 class="card-title">5. Random Forest Feature Weights</h2>
-            <div id="feature-importance-chart" class="chart-container" style="height: 320px;"></div>
-            <div class="formula-box">
-                <p>Normalized Gini importance score across all input feature split contributions.</p>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2 class="card-title">6. Decision Tree Branch Rules (Module 3 Practical 4)</h2>
-            <div class="code-preview-box">
-                <pre><code>{{ tree_rules }}</code></pre>
-            </div>
-            <div class="formula-box">
-                <p><strong>Gini Impurity Formula:</strong></p>
-                <code>Gini = 1 - Sum_{i=1}^{C} (p_i)^2</code>
-                <p>Evaluates purity gain at each feature partition in the training pipeline.</p>
-            </div>
-        </div>
+<div class="grid-2-col mt">
+    <div class="card">
+        <h2 class="card-title">Feature importance (random forest) <span class="tag m3">Module 3</span></h2>
+        <div id="feature-importance-chart" class="chart"></div>
+        <div class="formula">Mean decrease in Gini impurity across all 40 trees, top 8 features.</div>
     </div>
 
-    <!-- Section 4: A* Search Mathematical Mechanics -->
-    <div class="card" style="margin-top: 24px;">
-        <h2 class="card-title">7. A* Heuristic Search Formulation (Module 2)</h2>
-        <div class="grid-3-col">
-            <div class="mechanic-card">
-                <h3>f(n) = g(n) + h(n)</h3>
-                <p><strong>Evaluation Function:</strong> Balances exact accumulated cost from start node with the estimated remaining distance to destination.</p>
-            </div>
-            <div class="mechanic-card">
-                <h3>Haversine Heuristic h(n)</h3>
-                <p><strong>Admissibility Guarantee:</strong> Computes the great-circle Euclidean distance, ensuring h(n) never overestimates actual road travel distance.</p>
-            </div>
-            <div class="mechanic-card">
-                <h3>Dynamic Edge Penalty</h3>
-                <p><strong>ML Synergy:</strong> Multiplies road segments by live predicted traffic density factor (Low: 1.0x, Medium: 1.35x, Jam: 2.2x).</p>
-            </div>
+    <div class="card">
+        <h2 class="card-title">Decision tree rules <span class="tag m3">Module 3</span></h2>
+        <pre class="rules">{{ tree_rules }}</pre>
+        <div class="formula">
+            <code>Gini    = 1 - sum(p_i^2)
+Entropy = -sum(p_i * log2 p_i)</code>
+            Each split picks the feature and threshold that lowers impurity the most. Numeric features are
+            standardised, so thresholds are in standard deviations.
+        </div>
+    </div>
+</div>
+
+<div class="card mt">
+    <h2 class="card-title">A* route search <span class="tag m2">Module 2</span></h2>
+    <div class="grid-3-col">
+        <div class="mechanic">
+            <h3>f(n) = g(n) + h(n)</h3>
+            <p>g is the cost of the road travelled so far and h is the straight-line Haversine distance to the drop-off.</p>
+        </div>
+        <div class="mechanic">
+            <h3>cost = km * (m + r(m - 1))</h3>
+            <p>m is the traffic multiplier for the road (Low 1.0, Medium 1.35, High 1.75, Jam 2.2) and r is the predicted delay probability.</p>
+        </div>
+        <div class="mechanic">
+            <h3>h(n) &le; true cost</h3>
+            <p>Every road is at least as long as the straight line and the cost is never below km, so h is admissible and A* returns the cheapest route.</p>
         </div>
     </div>
 </div>
@@ -131,12 +119,8 @@
 
 {% block scripts %}
 <script>
-    const serverMetrics = {{ metrics|tojson }};
-    const serverClusters = {{ clusters|tojson }};
-    const serverFeatureImportances = {{ feature_importances|tojson }};
-
-    document.addEventListener('DOMContentLoaded', function() {
-        initExplainCharts(serverMetrics, serverClusters, serverFeatureImportances);
+    document.addEventListener('DOMContentLoaded', function () {
+        initExplainCharts({{ metrics|tojson }}, {{ clusters|tojson }}, {{ feature_importances|tojson }});
     });
 </script>
 {% endblock %}

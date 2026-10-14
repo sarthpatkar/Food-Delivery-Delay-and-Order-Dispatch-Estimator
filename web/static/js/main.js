@@ -1,291 +1,362 @@
-// LogiPulse AI - Client-side logic and Plotly charts (No emojis)
+const $ = id => document.getElementById(id);
 
-function initPredictPage() {
-    const distSlider = document.getElementById('distance_km');
-    const distVal = document.getElementById('dist-val');
-    if (distSlider && distVal) {
-        distSlider.addEventListener('input', () => distVal.textContent = distSlider.value);
-    }
-
-    const ratingSlider = document.getElementById('delivery_person_ratings');
-    const ratingVal = document.getElementById('rating-val');
-    if (ratingSlider && ratingVal) {
-        ratingSlider.addEventListener('input', () => ratingVal.textContent = ratingSlider.value);
-    }
-
-    const ageSlider = document.getElementById('delivery_person_age');
-    const ageVal = document.getElementById('age-val');
-    if (ageSlider && ageVal) {
-        ageSlider.addEventListener('input', () => ageVal.textContent = ageSlider.value);
-    }
-
-    const form = document.getElementById('prediction-form');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            executePrediction();
-        });
-        // Initial run
-        executePrediction();
-    }
+function themeColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function executePrediction() {
-    const payload = {
-        distance_km: parseFloat(document.getElementById('distance_km').value),
-        road_traffic_density: document.getElementById('road_traffic_density').value,
-        weather_conditions: document.getElementById('weather_conditions').value,
-        type_of_vehicle: document.getElementById('type_of_vehicle').value,
-        delivery_person_ratings: parseFloat(document.getElementById('delivery_person_ratings').value),
-        delivery_person_age: parseFloat(document.getElementById('delivery_person_age').value),
-        multiple_deliveries: parseFloat(document.getElementById('multiple_deliveries').value),
-        vehicle_condition: parseFloat(document.getElementById('vehicle_condition').value),
-        destination_node: document.getElementById('destination_node').value,
+function plot(id, data, layout) {
+    const muted = themeColor('--muted');
+    const line = themeColor('--line');
+    const axis = { gridcolor: line, zerolinecolor: line, linecolor: line };
+    const base = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: muted, family: getComputedStyle(document.body).fontFamily, size: 12 },
+        margin: { l: 50, r: 16, t: 10, b: 44 },
+        showlegend: false,
     };
+    const merged = Object.assign(base, layout);
+    merged.hoverlabel = { font: { family: base.font.family } };
+    merged.xaxis = Object.assign({}, axis, layout.xaxis);
+    merged.yaxis = Object.assign({}, axis, layout.yaxis);
+    Plotly.react(id, data, merged, { responsive: true, displayModeBar: false });
+}
+
+/* Predict page */
+
+function initPredictPage() {
+    const form = $('prediction-form');
+    let timer = null;
+
+    form.querySelectorAll('input[type=range]').forEach(slider => {
+        slider.addEventListener('input', () => { $(slider.id + '-val').textContent = slider.value; });
+    });
+    form.addEventListener('input', e => {
+        syncDropFields();
+        if (e.target === $('start_node') || e.target === document.querySelector('.drop-field select')) syncTripDistance();
+        clearTimeout(timer);
+        timer = setTimeout(runPrediction, 200);
+    });
+    form.addEventListener('submit', e => e.preventDefault());
+    syncDropFields();
+    syncTripDistance();
+    runPrediction();
+}
+
+function haversineKm(a, b) {
+    const rad = d => d * Math.PI / 180;
+    const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2
+        + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+// The model was trained on straight-line restaurant-to-customer distance, so feed it the same thing
+function syncTripDistance() {
+    const pickup = PLACES[$('start_node').value];
+    const drop = PLACES[document.querySelector('.drop-field select').value];
+    const slider = $('distance_km');
+    slider.value = Math.max(0.5, haversineKm(pickup, drop)).toFixed(1);
+    $('distance_km-val').textContent = slider.value;
+}
+
+// One drop-off for the main order plus one per stacked order
+function syncDropFields() {
+    const count = 1 + parseInt($('multiple_deliveries').value, 10);
+    document.querySelectorAll('.drop-field').forEach((field, i) => { field.hidden = i >= count; });
+}
+
+function runPrediction() {
+    const payload = {};
+    new FormData($('prediction-form')).forEach((value, key) => {
+        payload[key] = isNaN(value) || value === '' ? value : parseFloat(value);
+    });
+    payload.drops = [...document.querySelectorAll('.drop-field:not([hidden]) select')].map(s => s.value);
 
     fetch('/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
     })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            const pred = data.prediction;
-            document.getElementById('pred-minutes').textContent = pred.predicted_minutes;
-            document.getElementById('pred-prob').textContent = pred.delay_probability_pct;
-
-            const probBar = document.getElementById('prob-bar');
-            probBar.style.width = pred.delay_probability_pct + '%';
-
-            const badge = document.getElementById('risk-badge');
-            badge.className = 'badge';
-            if (pred.delay_risk_tier === 'High') {
-                badge.classList.add('badge-danger');
-                probBar.style.backgroundColor = '#f43f5e';
-            } else if (pred.delay_risk_tier === 'Moderate') {
-                badge.classList.add('badge-warning');
-                probBar.style.backgroundColor = '#f59e0b';
-            } else {
-                badge.classList.add('badge-success');
-                probBar.style.backgroundColor = '#10b981';
-            }
-            badge.textContent = pred.delay_risk_tier + ' Delay Risk';
-
-            const setConsensusCell = (id, val) => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.innerHTML = val === 1 
-                        ? '<span class="badge badge-danger">Delayed</span>' 
-                        : '<span class="badge badge-success">On-Time</span>';
-                }
-            };
-
-            setConsensusCell('m-rf', pred.rf_prediction);
-            setConsensusCell('m-dt-gini', pred.tree_gini_prediction);
-            setConsensusCell('m-dt-entropy', pred.tree_entropy_prediction);
-            setConsensusCell('m-lr', pred.logistic_prediction);
-
-            // Search comparison
-            const searchComps = data.search_comparison;
-            if (searchComps && searchComps.length > 0) {
-                const astar = searchComps[0];
-                document.getElementById('route-path-text').textContent = astar.path_names.join(' -> ');
-
-                const tableBody = document.getElementById('search-comparison-body');
-                tableBody.innerHTML = '';
-                searchComps.forEach(item => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><strong>${item.algorithm}</strong></td>
-                        <td>${item.nodes_expanded} nodes</td>
-                        <td>${item.total_distance_km} km</td>
-                        <td><strong>${item.estimated_time_min} min</strong></td>
-                    `;
-                    tableBody.appendChild(tr);
-                });
-            }
-        }
-    })
-    .catch(err => console.error('Prediction API error:', err));
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== 'success') return;
+            showEstimate(data.prediction);
+            showRoutes(data.search_comparison, data.map, data.stops);
+        })
+        .catch(err => console.error('predict failed', err));
 }
 
-function initRetrainPage() {
-    const radioButtons = document.querySelectorAll('input[name="dataset_choice"]');
-    const customGroup = document.getElementById('custom-file-group');
+function showEstimate(pred) {
+    $('pred-minutes').textContent = pred.predicted_minutes;
+    $('pred-prob').textContent = pred.delay_probability_pct;
 
-    radioButtons.forEach(radio => {
-        radio.addEventListener('change', function() {
-            if (this.value === 'custom') {
-                customGroup.style.display = 'block';
-            } else {
-                customGroup.style.display = 'none';
-            }
-        });
+    const tier = pred.delay_risk_tier.toLowerCase();
+    const colors = { low: '--good', moderate: '--warn', high: '--bad' };
+    $('risk-label').className = 'risk ' + tier;
+    $('prob-tile').className = 'tile risk-' + tier;
+    $('risk-label').textContent = pred.delay_risk_tier + ' risk';
+    $('prob-bar').style.width = pred.delay_probability_pct + '%';
+    $('prob-bar').style.background = themeColor(colors[tier]);
+
+    const votes = {
+        'm-rf': pred.rf_prediction,
+        'm-dt-gini': pred.tree_gini_prediction,
+        'm-dt-entropy': pred.tree_entropy_prediction,
+        'm-lr': pred.logistic_prediction,
+    };
+    Object.entries(votes).forEach(([id, late]) => {
+        $(id).textContent = late ? 'Late' : 'On time';
+        $(id).className = late ? 'late' : 'ok';
+    });
+}
+
+function stopClass(id, stops) {
+    if (id === stops[0]) return 'pickup';
+    return stops.includes(id) ? 'drop' : '';
+}
+
+function showRoutes(results, map, stops) {
+    const [astar, greedy] = results;
+    $('route-stops').innerHTML = astar.path
+        .map((id, i) => `<li class="${stopClass(id, stops)}">${astar.path_names[i]}</li>`)
+        .join('');
+
+    const cheapest = Math.min(...results.map(r => r.path_cost));
+    $('search-comparison-body').innerHTML = results.map(r => `
+        <tr class="${r === astar ? 'best' : ''}">
+            <td>${r.algorithm}</td>
+            <td>${r.nodes_expanded}</td>
+            <td>${r.total_distance_km} km</td>
+            <td>${r.estimated_time_min} min</td>
+            <td>${r.path_cost}${r.path_cost > cheapest ? '' : ' <span class="muted">(best)</span>'}</td>
+        </tr>`).join('');
+
+    drawRouteMap(map, astar, greedy, stops);
+}
+
+const BASEMAP = {
+    light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+};
+let routeMap = null;
+let mapReady = false;
+let pendingRoute = null;
+const stopMarkers = {};
+
+const line = coords => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+
+function initRouteMap(map) {
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    routeMap = new maplibregl.Map({
+        container: 'route-map',
+        style: dark ? BASEMAP.dark : BASEMAP.light,
+        center: [72.865, 19.08],
+        zoom: 11,
+        attributionControl: { compact: true },
+    });
+    routeMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    routeMap.fitBounds([[72.805, 18.99], [72.92, 19.175]], { padding: 30, duration: 0 });
+
+    map.nodes.forEach(n => {
+        const el = document.createElement('div');
+        el.className = 'stop-marker';
+        el.innerHTML = '<span></span>' + n.name;
+        stopMarkers[n.id] = el;
+        new maplibregl.Marker({ element: el, anchor: 'left', offset: [-6, 0] }).setLngLat([n.lon, n.lat]).addTo(routeMap);
     });
 
-    const form = document.getElementById('retrain-form');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('btn-retrain');
-            const loading = document.getElementById('retrain-loading');
-            btn.disabled = true;
-            loading.style.display = 'block';
-
-            const formData = new FormData(form);
-
-            fetch('/api/retrain', {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                btn.disabled = false;
-                loading.style.display = 'none';
-
-                if (data.status === 'success') {
-                    document.getElementById('delta-samples').textContent = data.samples_trained;
-                    document.getElementById('delta-accuracy').textContent = data.updated_accuracy;
-
-                    const deltaBadge = document.getElementById('delta-badge');
-                    deltaBadge.className = 'badge badge-success';
-                    deltaBadge.textContent = 'Retrained in ' + data.training_time_seconds + 's';
-
-                    document.getElementById('meta-samples').textContent = data.samples_trained + ' records';
-                    document.getElementById('meta-timestamp').textContent = data.timestamp;
-
-                    const tableBody = document.getElementById('metrics-table-body');
-                    tableBody.innerHTML = '';
-                    data.updated_metrics.classification.forEach(m => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td>${m.model_name}</td>
-                            <td>${m.accuracy}%</td>
-                            <td>${m.precision}%</td>
-                            <td>${m.recall}%</td>
-                            <td>${m.f1_score}%</td>
-                            <td>${m.roc_auc}</td>
-                        `;
-                        tableBody.appendChild(tr);
-                    });
-
-                    document.getElementById('reg-mae').textContent = data.updated_metrics.regression.mae + ' min';
-                    document.getElementById('reg-rmse').textContent = data.updated_metrics.regression.rmse + ' min';
-                    document.getElementById('reg-r2').textContent = data.updated_metrics.regression.r2_score;
-                }
-            })
-            .catch(err => {
-                btn.disabled = false;
-                loading.style.display = 'none';
-                console.error('Retrain API error:', err);
-            });
+    routeMap.on('load', () => {
+        const empty = { type: 'FeatureCollection', features: [] };
+        ['roads', 'greedy', 'astar'].forEach(id => routeMap.addSource(id, { type: 'geojson', data: empty }));
+        routeMap.addLayer({
+            id: 'roads', type: 'line', source: 'roads',
+            layout: { 'line-cap': 'round' },
+            paint: {
+                'line-width': 3,
+                'line-opacity': 0.7,
+                'line-color': ['match', ['get', 'traffic'],
+                    'Low', themeColor('--green'), 'High', themeColor('--saffron'), 'Jam', themeColor('--bad'),
+                    themeColor('--muted')],
+            },
         });
-    }
+        routeMap.addLayer({
+            id: 'greedy', type: 'line', source: 'greedy',
+            paint: { 'line-color': themeColor('--violet'), 'line-width': 3, 'line-dasharray': [1, 1.5] },
+        });
+        routeMap.addLayer({
+            id: 'astar', type: 'line', source: 'astar',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': themeColor('--teal'), 'line-width': 6 },
+        });
+        mapReady = true;
+        if (pendingRoute) drawRouteMap(...pendingRoute);
+    });
 }
 
+function drawRouteMap(map, astar, greedy, stops) {
+    if (!routeMap) initRouteMap(map);
+    if (!mapReady) {
+        pendingRoute = [map, astar, greedy, stops];
+        return;
+    }
+    routeMap.getSource('roads').setData({
+        type: 'FeatureCollection',
+        features: map.edges.map(e => Object.assign(line(e.coords), { properties: { traffic: e.traffic } })),
+    });
+    routeMap.getSource('greedy').setData(line(greedy.coords));
+    routeMap.getSource('astar').setData(line(astar.coords));
+
+    const onPath = new Set(astar.path);
+    // Toggle only our classes; MapLibre keeps its positioning classes on the same element
+    Object.entries(stopMarkers).forEach(([id, el]) => {
+        const role = stopClass(id, stops);
+        el.classList.toggle('on-path', onPath.has(id));
+        el.classList.toggle('pickup', role === 'pickup');
+        el.classList.toggle('drop', role === 'drop');
+    });
+}
+
+/* Retrain page */
+
+function initRetrainPage() {
+    const form = $('retrain-form');
+    form.querySelectorAll('input[name=dataset_choice]').forEach(radio => {
+        radio.addEventListener('change', () => { $('custom-file-group').hidden = radio.value !== 'custom'; });
+    });
+
+    form.addEventListener('submit', e => {
+        e.preventDefault();
+        const btn = $('btn-retrain');
+        btn.disabled = true;
+        btn.textContent = 'Retraining...';
+        $('retrain-error').hidden = true;
+
+        fetch('/api/retrain', { method: 'POST', body: new FormData(form) })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status !== 'success') throw new Error(data.message || 'Retraining failed.');
+                showRetrainResult(data);
+            })
+            .catch(err => {
+                $('retrain-error').textContent = err.message;
+                $('retrain-error').hidden = false;
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Retrain models';
+            });
+    });
+}
+
+function showRetrainResult(data) {
+    const before = Object.fromEntries(data.previous_metrics.classification.map(m => [m.model_name, m.accuracy]));
+    const delta = data.accuracy_delta;
+
+    $('meta-samples').textContent = data.samples_trained;
+    $('meta-timestamp').textContent = data.timestamp;
+    $('prev-col').hidden = false;
+    $('retrain-summary').innerHTML =
+        `Added ${data.rows_added} rows in ${data.training_time_seconds}s. Random forest accuracy ` +
+        `<span class="${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '+' : ''}${delta} points</span>.`;
+
+    $('metrics-table-body').innerHTML = data.updated_metrics.classification.map(m => `
+        <tr>
+            <td>${m.model_name}</td>
+            <td>${m.accuracy}%</td>
+            <td class="muted">${before[m.model_name] ?? '--'}%</td>
+            <td>${m.precision}%</td>
+            <td>${m.recall}%</td>
+            <td>${m.f1_score}%</td>
+            <td>${m.roc_auc}</td>
+        </tr>`).join('');
+
+    const reg = data.updated_metrics.regression;
+    $('reg-mae').textContent = reg.mae + ' min';
+    $('reg-rmse').textContent = reg.rmse + ' min';
+    $('reg-r2').textContent = reg.r2_score;
+}
+
+/* How it works page */
+
 function initExplainCharts(metrics, clusters, featureImportances) {
-    const darkThemeLayout = {
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { color: '#94a3b8', family: '-apple-system, sans-serif' },
-        margin: { l: 45, r: 20, t: 30, b: 40 }
-    };
+    const accent = themeColor('--accent');
+    const ink = themeColor('--ink');
+    const teal = themeColor('--teal');
+    const violet = themeColor('--violet');
+    const rf = metrics.classification[0];
 
-    // 1. Confusion Matrix Heatmap
-    if (metrics && metrics.classification && metrics.classification[0]) {
-        const cm = metrics.classification[0].confusion_matrix;
-        const cmData = [
-            {
-                z: [[cm.tn, cm.fp], [cm.fn, cm.tp]],
-                x: ['Pred: On-Time (0)', 'Pred: Delayed (1)'],
-                y: ['Actual: On-Time (0)', 'Actual: Delayed (1)'],
-                type: 'heatmap',
-                colorscale: [[0, '#0f172a'], [0.5, '#3b82f6'], [1, '#38bdf8']],
-                showscale: false
-            }
-        ];
-        const cmLayout = Object.assign({}, darkThemeLayout, {
-            annotations: [
-                { x: 'Pred: On-Time (0)', y: 'Actual: On-Time (0)', text: 'TN: ' + cm.tn, showarrow: false, font: { color: '#ffffff', size: 14 } },
-                { x: 'Pred: Delayed (1)', y: 'Actual: On-Time (0)', text: 'FP: ' + cm.fp, showarrow: false, font: { color: '#ffffff', size: 14 } },
-                { x: 'Pred: On-Time (0)', y: 'Actual: Delayed (1)', text: 'FN: ' + cm.fn, showarrow: false, font: { color: '#ffffff', size: 14 } },
-                { x: 'Pred: Delayed (1)', y: 'Actual: Delayed (1)', text: 'TP: ' + cm.tp, showarrow: false, font: { color: '#ffffff', size: 14 } }
-            ]
-        });
-        Plotly.newPlot('confusion-matrix-chart', cmData, cmLayout, { responsive: true, displayModeBar: false });
+    const cm = rf.confusion_matrix;
+    const labels = ['On time', 'Late'];
+    plot('confusion-matrix-chart', [{
+        z: [[cm.tn, cm.fp], [cm.fn, cm.tp]],
+        x: labels,
+        y: labels,
+        type: 'heatmap',
+        colorscale: [[0, themeColor('--paper')], [1, teal]],
+        showscale: false,
+        opacity: 0.75,
+        hoverinfo: 'skip',
+    }], {
+        margin: { l: 80, r: 16, t: 10, b: 44 },
+        xaxis: { title: 'Predicted', side: 'bottom' },
+        yaxis: { title: 'Actual', autorange: 'reversed' },
+        annotations: [
+            ['On time', 'On time', 'TN', cm.tn], ['Late', 'On time', 'FP', cm.fp],
+            ['On time', 'Late', 'FN', cm.fn], ['Late', 'Late', 'TP', cm.tp],
+        ].map(([x, y, tag, n]) => ({
+            x, y, text: `${tag}<br><b>${n}</b>`, showarrow: false, font: { color: ink, size: 14 },
+        })),
+    });
 
-        // 2. ROC Curve
-        const rocPoints = metrics.classification[0].roc_curve || [];
-        const fpr = rocPoints.map(p => p.fpr);
-        const tpr = rocPoints.map(p => p.tpr);
-        const rocData = [
-            { x: fpr, y: tpr, type: 'scatter', mode: 'lines', line: { color: '#38bdf8', width: 2.5 }, name: 'Model ROC' },
-            { x: [0, 1], y: [0, 1], type: 'scatter', mode: 'lines', line: { dash: 'dash', color: '#64748b' }, name: 'Random Chance' }
-        ];
-        const rocLayout = Object.assign({}, darkThemeLayout, {
-            xaxis: { title: 'False Positive Rate', range: [0, 1] },
-            yaxis: { title: 'True Positive Rate', range: [0, 1] },
-            showlegend: false
-        });
-        Plotly.newPlot('roc-curve-chart', rocData, rocLayout, { responsive: true, displayModeBar: false });
-    }
+    plot('roc-curve-chart', [
+        { x: [0, 1], y: [0, 1], mode: 'lines', line: { dash: 'dot', color: themeColor('--muted'), width: 1 }, hoverinfo: 'skip' },
+        { x: rf.roc_curve.map(p => p.fpr), y: rf.roc_curve.map(p => p.tpr), mode: 'lines', line: { color: accent, width: 2.5 } },
+    ], {
+        xaxis: { title: 'False positive rate', range: [0, 1] },
+        yaxis: { title: 'True positive rate', range: [0, 1.02] },
+    });
 
-    // 3. K-Means Elbow Curve
-    if (clusters && clusters.elbow_data) {
-        const kVals = clusters.elbow_data.map(d => d.k);
-        const inertias = clusters.elbow_data.map(d => d.inertia);
-        const elbowData = [
-            { x: kVals, y: inertias, type: 'scatter', mode: 'lines+markers', marker: { color: '#f59e0b', size: 8 }, line: { color: '#f59e0b', width: 2 } }
-        ];
-        const elbowLayout = Object.assign({}, darkThemeLayout, {
-            xaxis: { title: 'Number of Clusters (k)', dtick: 1 },
-            yaxis: { title: 'Within-Cluster Sum of Squares (WCSS)' }
-        });
-        Plotly.newPlot('elbow-chart', elbowData, elbowLayout, { responsive: true, displayModeBar: false });
-    }
+    plot('elbow-chart', [{
+        x: clusters.elbow_data.map(d => d.k),
+        y: clusters.elbow_data.map(d => d.inertia),
+        mode: 'lines+markers',
+        line: { color: violet, width: 2 },
+        marker: { size: clusters.elbow_data.map(d => (d.k === 3 ? 12 : 7)), color: clusters.elbow_data.map(d => (d.k === 3 ? accent : violet)) },
+    }], {
+        xaxis: { title: 'k', dtick: 1 },
+        yaxis: { title: 'WCSS' },
+    });
 
-    // 4. PCA 2D Scatter
-    if (clusters && clusters.pca_points) {
-        const pts = clusters.pca_points;
-        const colorPalette = ['#10b981', '#38bdf8', '#f43f5e'];
-        const pcaData = [
-            {
-                x: pts.map(p => p.x),
-                y: pts.map(p => p.y),
-                text: pts.map(p => 'Transit: ' + p.time + ' min, Dist: ' + p.distance + ' km'),
-                mode: 'markers',
-                type: 'scatter',
-                marker: {
-                    size: 6,
-                    color: pts.map(p => colorPalette[p.cluster % colorPalette.length]),
-                    opacity: 0.8
-                }
-            }
-        ];
-        const pcaLayout = Object.assign({}, darkThemeLayout, {
-            xaxis: { title: 'Principal Component 1' },
-            yaxis: { title: 'Principal Component 2' }
-        });
-        Plotly.newPlot('pca-scatter-chart', pcaData, pcaLayout, { responsive: true, displayModeBar: false });
-    }
+    const palette = [themeColor('--green'), themeColor('--saffron'), violet];
+    plot('pca-scatter-chart', clusters.profiles.map((prof, rank) => {
+        const pts = clusters.pca_points.filter(p => p.cluster === prof.cluster_id);
+        return {
+            name: prof.name,
+            x: pts.map(p => p.x),
+            y: pts.map(p => p.y),
+            text: pts.map(p => `${p.time} min, ${p.distance.toFixed(1)} km`),
+            mode: 'markers',
+            hoverinfo: 'text',
+            marker: { size: 5, color: palette[rank % palette.length], opacity: 0.75 },
+        };
+    }), {
+        showlegend: true,
+        legend: { orientation: 'h', y: 1.08, x: 0 },
+        margin: { l: 50, r: 16, t: 30, b: 44 },
+        xaxis: { title: 'PC 1' },
+        yaxis: { title: 'PC 2' },
+    });
 
-    // 5. Feature Importance Horizontal Bar
-    if (featureImportances && featureImportances.length > 0) {
-        const topFeatures = featureImportances.slice(0, 8).reverse();
-        const featData = [
-            {
-                x: topFeatures.map(f => f.importance),
-                y: topFeatures.map(f => f.feature),
-                type: 'bar',
-                orientation: 'h',
-                marker: { color: '#6366f1' }
-            }
-        ];
-        const featLayout = Object.assign({}, darkThemeLayout, {
-            xaxis: { title: 'Gini Importance Score' },
-            yaxis: { automargin: true }
-        });
-        Plotly.newPlot('feature-importance-chart', featData, featLayout, { responsive: true, displayModeBar: false });
-    }
+    const top = featureImportances.slice(0, 8).reverse();
+    plot('feature-importance-chart', [{
+        x: top.map(f => f.importance),
+        y: top.map(f => f.feature.replace(/_/g, ' ')),
+        type: 'bar',
+        orientation: 'h',
+        marker: { color: top.map((f, i) => (i === top.length - 1 ? accent : teal)) },
+    }], {
+        margin: { l: 10, r: 16, t: 10, b: 44 },
+        xaxis: { title: 'Importance' },
+        yaxis: { automargin: true },
+    });
 }

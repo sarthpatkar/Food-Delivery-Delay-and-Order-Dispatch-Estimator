@@ -1,174 +1,187 @@
 {% extends "base.html" %}
 
-{% block title %}Order Predictor & A* Dispatch | LogiPulse AI{% endblock %}
+{% block title %}Predict | Delivery Delay Estimator{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css"
+      integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"
+        integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj" crossorigin="anonymous"></script>
+{% endblock %}
 
 {% block content %}
-<div class="page-container">
-    <div class="page-header">
-        <h1>Order Delivery Predictor & A* Dispatch Planner</h1>
-        <p class="page-description">
-            Simulate real-time food delivery dispatch. Adjust order parameters below to compute expected delivery minutes (Multiple Linear Regression), classify delay risk (Decision Trees & Random Forest), and compute the optimal route using A* Search.
-        </p>
-    </div>
+<div class="page-header">
+    <h1>Delivery prediction</h1>
+    <p class="page-description">
+        Linear regression predicts delivery time. Four classifiers predict whether it exceeds 30 minutes.
+        A* plans the trip across Mumbai.
+    </p>
+</div>
 
-    <div class="grid-2-col">
-        <!-- Input Form Section -->
-        <div class="card form-card">
-            <h2 class="card-title">Order & Transit Parameters</h2>
-            <form id="prediction-form" class="prediction-form">
+<div class="grid-2-col">
+    <div class="card panel">
+        <h2 class="card-title">Order</h2>
+        <form id="prediction-form">
+            <div class="form-row">
+                <div class="form-group col-half">
+                    <label for="city">City type</label>
+                    <select id="city" name="city" class="form-control">
+                        <option value="Metropolitian" selected>Metropolitan</option>
+                        <option value="Urban">Urban</option>
+                        <option value="Semi-Urban">Semi-urban</option>
+                    </select>
+                </div>
+                <div class="form-group col-half">
+                    <label for="road_traffic_density">Traffic</label>
+                    <select id="road_traffic_density" name="road_traffic_density" class="form-control">
+                        <option value="Low">Low</option>
+                        <option value="Medium" selected>Medium</option>
+                        <option value="High">High</option>
+                        <option value="Jam">Jam</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="distance_km">Distance, pickup to drop-off 1 <span><span id="distance_km-val" class="slider-val">5.5</span> km</span></label>
+                <input type="range" id="distance_km" name="distance_km" min="0.5" max="22" step="0.1" value="5.5" class="range-slider">
+                <p class="note" style="margin-top: 2px;">Straight-line distance, measured the same way as the training data. Filled in from the trip below; drag to override.</p>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-half">
+                    <label for="weather_conditions">Weather</label>
+                    <select id="weather_conditions" name="weather_conditions" class="form-control">
+                        <option value="Sunny" selected>Sunny</option>
+                        <option value="Cloudy">Cloudy</option>
+                        <option value="Fog">Fog</option>
+                        <option value="Windy">Windy</option>
+                        <option value="Stormy">Stormy</option>
+                        <option value="Sandstorms">Sandstorms</option>
+                    </select>
+                </div>
+                <div class="form-group col-half">
+                    <label for="type_of_vehicle">Vehicle</label>
+                    <select id="type_of_vehicle" name="type_of_vehicle" class="form-control">
+                        <option value="motorcycle" selected>Motorcycle</option>
+                        <option value="scooter">Scooter</option>
+                        <option value="electric_scooter">Electric scooter</option>
+                        <option value="bicycle">Bicycle</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-half">
+                    <label for="delivery_person_ratings">Rider rating <span id="delivery_person_ratings-val" class="slider-val">4.6</span></label>
+                    <input type="range" id="delivery_person_ratings" name="delivery_person_ratings" min="3.0" max="5.0" step="0.1" value="4.6" class="range-slider">
+                </div>
+                <div class="form-group col-half">
+                    <label for="delivery_person_age">Rider age <span id="delivery_person_age-val" class="slider-val">28</span></label>
+                    <input type="range" id="delivery_person_age" name="delivery_person_age" min="18" max="50" step="1" value="28" class="range-slider">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-half">
+                    <label for="multiple_deliveries">Other orders on the trip</label>
+                    <select id="multiple_deliveries" name="multiple_deliveries" class="form-control">
+                        <option value="0">None</option>
+                        <option value="1" selected>1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+                <div class="form-group col-half">
+                    <label for="vehicle_condition">Vehicle condition</label>
+                    <select id="vehicle_condition" name="vehicle_condition" class="form-control">
+                        <option value="2" selected>Good</option>
+                        <option value="1">Average</option>
+                        <option value="0">Worn</option>
+                    </select>
+                </div>
+            </div>
+
+            <h3 class="section-subtitle">Trip in Mumbai</h3>
+            <div class="drop-grid">
                 <div class="form-group">
-                    <label for="destination_node">Customer Drop Location</label>
-                    <select id="destination_node" name="destination_node" class="form-control">
-                        {% for dest in destinations %}
-                        <option value="{{ dest.id }}" {% if dest.id == 'Hinjewadi_Phase1' %}selected{% endif %}>
-                            {{ dest.name }}
-                        </option>
+                    <label for="start_node">Pickup (restaurant)</label>
+                    <select id="start_node" name="start_node" class="form-control">
+                        {% for p in places %}
+                        <option value="{{ p.id }}" {% if p.id == 'Lower_Parel' %}selected{% endif %}>{{ p.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
-
-                <div class="form-row">
-                    <div class="form-group col-half">
-                        <label for="distance_km">Delivery Distance (km): <span id="dist-val" class="slider-val">5.5</span></label>
-                        <input type="range" id="distance_km" name="distance_km" min="0.5" max="22.0" step="0.5" value="5.5" class="range-slider">
-                    </div>
-                    <div class="form-group col-half">
-                        <label for="road_traffic_density">Road Traffic Density</label>
-                        <select id="road_traffic_density" name="road_traffic_density" class="form-control">
-                            <option value="Low">Low</option>
-                            <option value="Medium" selected>Medium</option>
-                            <option value="High">High</option>
-                            <option value="Jam">Jam (Severe Traffic)</option>
-                        </select>
-                    </div>
+                {% for default in ['Powai', 'Ghatkopar', 'Bandra_West', 'Goregaon'] %}
+                <div class="form-group drop-field" {% if loop.index > 2 %}hidden{% endif %}>
+                    <label>Drop-off {{ loop.index }}</label>
+                    <select class="form-control drop-select" aria-label="Drop-off {{ loop.index }}">
+                        {% for p in places %}
+                        <option value="{{ p.id }}" {% if p.id == default %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
+                {% endfor %}
+            </div>
+            <p class="note" style="margin-top: 0;">One drop-off per order: the main order plus each other order on the trip.</p>
+        </form>
+    </div>
 
-                <div class="form-row">
-                    <div class="form-group col-half">
-                        <label for="weather_conditions">Weather Condition</label>
-                        <select id="weather_conditions" name="weather_conditions" class="form-control">
-                            <option value="Sunny" selected>Sunny</option>
-                            <option value="Cloudy">Cloudy</option>
-                            <option value="Fog">Fog</option>
-                            <option value="Windy">Windy</option>
-                            <option value="Stormy">Stormy</option>
-                            <option value="Sandstorms">Sandstorms</option>
-                        </select>
-                    </div>
-                    <div class="form-group col-half">
-                        <label for="type_of_vehicle">Vehicle Type</label>
-                        <select id="type_of_vehicle" name="type_of_vehicle" class="form-control">
-                            <option value="motorcycle" selected>Motorcycle</option>
-                            <option value="scooter">Scooter</option>
-                            <option value="electric_scooter">Electric Scooter</option>
-                            <option value="bicycle">Bicycle</option>
-                        </select>
-                    </div>
+    <div class="stack">
+        <div class="card">
+            <h2 class="card-title">Prediction</h2>
+            <div class="readout">
+                <div class="tile time">
+                    <div class="readout-label">Delivery time</div>
+                    <div class="readout-value"><span id="pred-minutes">--</span><small>min</small></div>
                 </div>
-
-                <div class="form-row">
-                    <div class="form-group col-half">
-                        <label for="delivery_person_ratings">Rider Rating: <span id="rating-val" class="slider-val">4.6</span></label>
-                        <input type="range" id="delivery_person_ratings" name="delivery_person_ratings" min="3.0" max="5.0" step="0.1" value="4.6" class="range-slider">
-                    </div>
-                    <div class="form-group col-half">
-                        <label for="delivery_person_age">Rider Age: <span id="age-val" class="slider-val">28</span></label>
-                        <input type="range" id="delivery_person_age" name="delivery_person_age" min="18" max="50" step="1" value="28" class="range-slider">
-                    </div>
+                <div class="tile" id="prob-tile">
+                    <div class="readout-label">Delay probability</div>
+                    <div class="readout-value"><span id="pred-prob">--</span><small>%</small></div>
+                    <span id="risk-label" class="risk">&nbsp;</span>
+                    <div class="meter"><div class="meter-fill" id="prob-bar"></div></div>
                 </div>
+            </div>
 
-                <div class="form-row">
-                    <div class="form-group col-half">
-                        <label for="multiple_deliveries">Stacked Deliveries in Queue</label>
-                        <select id="multiple_deliveries" name="multiple_deliveries" class="form-control">
-                            <option value="0">0 (Solo Order)</option>
-                            <option value="1" selected>1 Additional Delivery</option>
-                            <option value="2">2 Stacked Deliveries</option>
-                            <option value="3">3 Stacked Deliveries</option>
-                        </select>
-                    </div>
-                    <div class="form-group col-half">
-                        <label for="vehicle_condition">Vehicle Condition</label>
-                        <select id="vehicle_condition" name="vehicle_condition" class="form-control">
-                            <option value="2" selected>Good Condition (2)</option>
-                            <option value="1">Average Condition (1)</option>
-                            <option value="0">Poor / Worn (0)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn btn-primary" id="btn-calculate">Calculate Predictions & Route</button>
-            </form>
+            <h3 class="section-subtitle">Classifier output</h3>
+            <div class="votes">
+                <div class="vote">Random forest<strong id="m-rf">--</strong></div>
+                <div class="vote">Tree (Gini)<strong id="m-dt-gini">--</strong></div>
+                <div class="vote">Tree (entropy)<strong id="m-dt-entropy">--</strong></div>
+                <div class="vote">Logistic reg.<strong id="m-lr">--</strong></div>
+            </div>
         </div>
 
-        <!-- Output Cards Section -->
-        <div class="results-column">
-            <!-- ML Predictions Card -->
-            <div class="card result-card">
-                <h2 class="card-title">Supervised ML Estimates</h2>
-                
-                <div class="kpi-grid">
-                    <div class="kpi-box">
-                        <span class="kpi-label">Estimated Delivery Time</span>
-                        <div class="kpi-value"><span id="pred-minutes">--</span> <small>min</small></div>
-                        <span class="kpi-subtext">Multiple Linear Regression Model</span>
-                    </div>
-
-                    <div class="kpi-box">
-                        <span class="kpi-label">Delay Risk Probability</span>
-                        <div class="kpi-value"><span id="pred-prob">--</span><small>%</small></div>
-                        <span id="risk-badge" class="badge badge-neutral">Awaiting Input</span>
-                    </div>
-                </div>
-
-                <div class="progress-bar-container">
-                    <div class="progress-bar-fill" id="prob-bar" style="width: 0%;"></div>
-                </div>
-
-                <div class="model-consensus-box">
-                    <h3 class="section-subtitle">Multi-Model Consensus</h3>
-                    <table class="table-compact">
-                        <thead>
-                            <tr>
-                                <th>Algorithm (Syllabus)</th>
-                                <th>Classification Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="consensus-table-body">
-                            <tr><td>Random Forest Ensemble</td><td id="m-rf">--</td></tr>
-                            <tr><td>Decision Tree (Gini Impurity)</td><td id="m-dt-gini">--</td></tr>
-                            <tr><td>Decision Tree (Entropy Criterion)</td><td id="m-dt-entropy">--</td></tr>
-                            <tr><td>Logistic Regression Baseline</td><td id="m-lr">--</td></tr>
-                        </tbody>
-                    </table>
-                </div>
+        <div class="card">
+            <h2 class="card-title">Route <span class="tag">Mumbai, 12 stops</span></h2>
+            <div id="route-map" class="route-map"></div>
+            <div class="legend">
+                <span><i style="background: var(--accent)"></i>Pickup</span>
+                <span><i style="background: var(--teal)"></i>A* path</span>
+                <span><i style="background: var(--violet)"></i>Greedy path</span>
+                <span><i style="background: var(--green)"></i>Low</span>
+                <span><i style="background: var(--muted)"></i>Medium</span>
+                <span><i style="background: var(--saffron)"></i>High</span>
+                <span><i style="background: var(--bad)"></i>Jam</span>
             </div>
+            <h3 class="section-subtitle">A* trip, in visiting order</h3>
+            <ol id="route-stops" class="stops"><li class="muted">Loading</li></ol>
 
-            <!-- Route Dispatch Search Card -->
-            <div class="card search-card">
-                <h2 class="card-title">Route Search Optimization (Module 2)</h2>
-                <div class="route-box">
-                    <span class="route-label">Optimal A* Waypoint Path:</span>
-                    <p id="route-path-text" class="route-path-text">Select parameters and click Calculate.</p>
-                </div>
-
-                <div class="search-comparison-table-container">
-                    <table class="table-compact">
-                        <thead>
-                            <tr>
-                                <th>Search Algorithm</th>
-                                <th>Nodes Expanded</th>
-                                <th>Total Distance</th>
-                                <th>Est. Transit</th>
-                            </tr>
-                        </thead>
-                        <tbody id="search-comparison-body">
-                            <tr><td colspan="4" class="text-center">Awaiting computation</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <p class="search-note">A* uses an admissible Haversine heuristic combined with ML traffic penalty to avoid heavy bottlenecks.</p>
+            <div class="table-wrap">
+                <table class="table-compact">
+                    <thead>
+                        <tr><th>Search</th><th>Expanded</th><th>Distance</th><th>Time</th><th>Path cost</th></tr>
+                    </thead>
+                    <tbody id="search-comparison-body"></tbody>
+                </table>
             </div>
+            <p class="note">
+                Stops sit at their real locations, and each of the 18 links follows real streets with its
+                driving length (routing by OSRM, OpenStreetMap data). A* searches over these links. With several drop-offs, every visiting order is costed
+                with A* and the cheapest is used; Greedy and BFS follow the same order. The chosen traffic level shifts every link up or down a
+                level, and a higher delay risk makes congested links cost more. The network is separate from the
+                city type above.
+            </p>
         </div>
     </div>
 </div>
@@ -176,8 +189,7 @@
 
 {% block scripts %}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        initPredictPage();
-    });
+    const PLACES = {{ places|tojson }}.reduce((acc, p) => Object.assign(acc, { [p.id]: p }), {});
+    document.addEventListener('DOMContentLoaded', initPredictPage);
 </script>
 {% endblock %}

@@ -1,56 +1,40 @@
-import os
 from flask import Flask, render_template, request, jsonify
-import pandas as pd
 
-from src.config import PRIMARY_DATASET_PATH, SECONDARY_DATASET_PATH
-from src.data_pipeline import DeliveryDataPipeline, load_and_prepare_data
-from src.models import DeliveryModelSuite
+from src.config import PRIMARY_DATASET_PATH, SECONDARY_DATASET_PATH, FAST_DATASET_PATH, UPLOAD_PATH
 from src.clustering import DeliveryClusterAnalyzer
 from src.search_planner import UrbanDeliveryGraph
-from src.evaluate import evaluate_suite, run_cross_validation
 from src.retrainer import DynamicRetrainingManager
 
 app = Flask(__name__)
 
-# Global runtime state
-state = {
-    "retrainer": None,
-    "cluster_analyzer": None,
-    "graph": None,
-    "data": None,
-}
+PRESETS = {"orders": SECONDARY_DATASET_PATH, "times": FAST_DATASET_PATH}
+state = {}
 
 
 def get_state():
-    if state["retrainer"] is None:
+    if not state:
         retrainer = DynamicRetrainingManager()
         retrainer.initialize_baseline(PRIMARY_DATASET_PATH)
 
-        data = load_and_prepare_data(PRIMARY_DATASET_PATH)
-
-        cluster_analyzer = DeliveryClusterAnalyzer(n_clusters=3)
-        cluster_analyzer.compute_elbow_curve(data["X_train"])
-        cluster_analyzer.fit_clusters_and_pca(data["X_train"], data["cleaned_df"])
+        clusters = DeliveryClusterAnalyzer(n_clusters=3)
+        clusters.compute_elbow_curve(retrainer.split["X_train"])
+        clusters.fit_clusters_and_pca(retrainer.split["X_train"], retrainer.cleaned_df)
 
         graph = UrbanDeliveryGraph()
+        if graph.load_street_routes():
+            print("Street paths loaded from OSRM", flush=True)
+        else:
+            print("OSRM unreachable, drawing links as straight lines", flush=True)
 
-        state["retrainer"] = retrainer
-        state["cluster_analyzer"] = cluster_analyzer
-        state["graph"] = graph
-        state["data"] = data
-
+        state.update(retrainer=retrainer, clusters=clusters, graph=graph)
     return state
 
 
 @app.route("/")
 def index():
-    s = get_state()
-    destinations = [
-        {"id": k, "name": v["name"]}
-        for k, v in s["graph"].nodes.items()
-        if k != "Central_Hub"
-    ]
-    return render_template("predict.html", destinations=destinations)
+    graph = get_state()["graph"]
+    places = [{"id": k, **v} for k, v in graph.nodes.items()]
+    return render_template("predict.html", places=places)
 
 
 @app.route("/api/predict", methods=["POST"])
@@ -70,79 +54,76 @@ def api_predict():
         "city": str(req.get("city", "Metropolitian")),
     }
 
-    pipeline = s["retrainer"].pipeline
-    model_suite = s["retrainer"].model_suite
+    retrainer = s["retrainer"]
+    sample = retrainer.pipeline.transform_single_input(input_dict)
+    prediction = retrainer.model_suite.predict_sample(sample)
 
-    transformed_sample = pipeline.transform_single_input(input_dict)
-    prediction = model_suite.predict_sample(transformed_sample)
-
-    destination_node = req.get("destination_node", "Hinjewadi_Phase1")
-    search_comparison = s["graph"].compare_all(
-        start_node="Central_Hub",
-        goal_node=destination_node,
-        traffic_override=input_dict["road_traffic_density"],
+    graph = s["graph"]
+    drops = [d for d in req.get("drops", []) if isinstance(d, str)][:4]
+    trip = graph.plan_trip(
+        start=req.get("start_node", graph.start_node),
+        drops=drops,
+        traffic=input_dict["road_traffic_density"],
+        risk=prediction["delay_probability_pct"] / 100.0,
     )
 
     return jsonify({
         "status": "success",
-        "inputs": input_dict,
         "prediction": prediction,
-        "search_comparison": search_comparison,
+        "stops": trip["stops"],
+        "search_comparison": trip["results"],
+        "map": graph.map_data(),
     })
 
 
 @app.route("/retrain")
 def retrain_page():
-    s = get_state()
-    metrics = s["retrainer"].current_metrics
-    samples = s["retrainer"].total_samples
-    timestamp = s["retrainer"].last_retrain_time
+    r = get_state()["retrainer"]
     return render_template(
         "retrain.html",
-        metrics=metrics,
-        samples=samples,
-        timestamp=timestamp,
+        metrics=r.current_metrics,
+        samples=r.total_samples,
+        timestamp=r.last_retrain_time,
     )
 
 
 @app.route("/api/retrain", methods=["POST"])
 def api_retrain():
-    s = get_state()
-    target_dataset = request.form.get("dataset_choice", "secondary")
+    retrainer = get_state()["retrainer"]
+    choice = request.form.get("dataset_choice", "orders")
+    upload = request.files.get("custom_file")
 
-    if "custom_file" in request.files and request.files["custom_file"].filename != "":
-        uploaded_file = request.files["custom_file"]
-        temp_path = "dataset/temp_uploaded.csv"
-        uploaded_file.save(temp_path)
-        csv_to_use = temp_path
-    elif target_dataset == "secondary":
-        csv_to_use = str(SECONDARY_DATASET_PATH)
+    if choice == "custom":
+        if not upload or not upload.filename:
+            return jsonify({"status": "error", "message": "Choose a CSV file to upload."}), 400
+        upload.save(UPLOAD_PATH)
+        csv_path = UPLOAD_PATH
     else:
-        csv_to_use = str(PRIMARY_DATASET_PATH)
+        csv_path = PRESETS.get(choice, SECONDARY_DATASET_PATH)
 
-    result = s["retrainer"].retrain_with_new_data(csv_to_use, merge_with_base=True)
-    return jsonify(result)
+    try:
+        return jsonify(retrainer.retrain_with_new_data(csv_path))
+    except (ValueError, KeyError) as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
 
 
 @app.route("/explain")
 def explain_page():
     s = get_state()
-    metrics = s["retrainer"].current_metrics
+    retrainer, clusters = s["retrainer"], s["clusters"]
     cluster_res = {
-        "elbow_data": s["cluster_analyzer"].elbow_data,
-        "profiles": s["cluster_analyzer"].cluster_profiles,
-        "explained_variance": s["cluster_analyzer"].explained_variance,
-        "pca_points": s["cluster_analyzer"].pca_coordinates,
+        "elbow_data": clusters.elbow_data,
+        "profiles": clusters.cluster_profiles,
+        "explained_variance": clusters.explained_variance,
+        "pca_points": clusters.pca_coordinates,
     }
-    tree_rules = s["retrainer"].model_suite.get_decision_tree_rules(max_depth=3)
-    feature_importances = s["retrainer"].model_suite.get_feature_importances()
-
     return render_template(
         "explain.html",
-        metrics=metrics,
+        metrics=retrainer.current_metrics,
+        cv=retrainer.cv,
         clusters=cluster_res,
-        tree_rules=tree_rules,
-        feature_importances=feature_importances,
+        tree_rules=retrainer.model_suite.get_decision_tree_rules(max_depth=3),
+        feature_importances=retrainer.model_suite.get_feature_importances(),
     )
 
 

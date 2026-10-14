@@ -1,126 +1,79 @@
 {% extends "base.html" %}
 
-{% block title %}Dynamic Retraining Studio | LogiPulse AI{% endblock %}
+{% block title %}Retrain | Delivery Delay Estimator{% endblock %}
 
 {% block content %}
-<div class="page-container">
-    <div class="page-header">
-        <h1>Dynamic Model Retraining Studio</h1>
-        <p class="page-description">
-            Evaluate how the machine learning pipeline dynamically adapts when presented with new, unseen operational datasets. The backend re-fits the scaling transforms and retrains the decision boundaries without requiring a server reboot.
-        </p>
+<div class="page-header">
+    <h1>Retrain models</h1>
+    <p class="page-description">
+        Append a dataset to the Kaggle data and refit all models. Scores are on a held-out 20% test split.
+    </p>
+</div>
+
+<div class="grid-2-col">
+    <div class="card panel">
+        <h2 class="card-title">Dataset</h2>
+        <form id="retrain-form" enctype="multipart/form-data">
+            <div class="form-group radio-group">
+                <label class="radio-label">
+                    <input type="radio" name="dataset_choice" value="orders" checked>
+                    <span>food_delivery_orders.csv <small>1,800 orders, different schema and cities</small></span>
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="dataset_choice" value="times">
+                    <span>food_delivery_times.csv <small>6,000 orders from Indian metros</small></span>
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="dataset_choice" value="custom">
+                    <span>Upload a CSV</span>
+                </label>
+            </div>
+
+            <div class="form-group" id="custom-file-group" hidden>
+                <input type="file" id="custom_file" name="custom_file" accept=".csv" class="form-control">
+                <p class="note">Needs a delivery time column. Distance, traffic, weather and vehicle columns are used if present.</p>
+            </div>
+
+            <div class="meta-row"><span class="muted">Training rows</span><strong id="meta-samples" class="num">{{ samples }}</strong></div>
+            <div class="meta-row"><span class="muted">Last trained</span><strong id="meta-timestamp" class="num">{{ timestamp }}</strong></div>
+
+            <button type="submit" class="btn" id="btn-retrain">Retrain models</button>
+            <div id="retrain-error" class="alert" hidden></div>
+        </form>
     </div>
 
-    <div class="grid-2-col">
-        <!-- Retrain Trigger Card -->
-        <div class="card">
-            <h2 class="card-title">Ingest New Training Data</h2>
-            <form id="retrain-form" enctype="multipart/form-data" class="retrain-form">
-                <div class="form-group">
-                    <label>Select Training Cohort Source</label>
-                    <div class="radio-group">
-                        <label class="radio-label">
-                            <input type="radio" name="dataset_choice" value="secondary" checked>
-                            <span>Secondary Benchmark: food_delivery_orders.csv (1,800 Unseen Deliveries)</span>
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="dataset_choice" value="custom">
-                            <span>Upload Custom Delivery CSV</span>
-                        </label>
-                    </div>
-                </div>
+    <div class="card">
+        <h2 class="card-title">Test set scores</h2>
+        <p id="retrain-summary" class="note" style="margin: 0 0 12px;">Baseline: Kaggle data only</p>
 
-                <div class="form-group" id="custom-file-group" style="display: none;">
-                    <label for="custom_file">Choose Custom CSV File</label>
-                    <input type="file" id="custom_file" name="custom_file" accept=".csv" class="form-control-file">
-                    <small class="form-hint">Must contain delivery distance, traffic, weather, and time columns.</small>
-                </div>
-
-                <div class="retrain-meta-box">
-                    <div class="meta-row">
-                        <span>Current Training Volume:</span>
-                        <strong id="meta-samples">{{ samples }} records</strong>
-                    </div>
-                    <div class="meta-row">
-                        <span>Last Retrain Timestamp:</span>
-                        <strong id="meta-timestamp">{{ timestamp }}</strong>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn btn-primary" id="btn-retrain">Execute Dynamic Retraining</button>
-            </form>
-
-            <div id="retrain-loading" class="retrain-loading" style="display: none;">
-                <div class="spinner"></div>
-                <p>Re-fitting scalers and retraining decision tree, random forest, and regression weights...</p>
-            </div>
+        <div class="table-wrap">
+            <table class="table-compact">
+                <thead>
+                    <tr><th>Model</th><th>Accuracy</th><th id="prev-col" hidden>Before</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUC</th></tr>
+                </thead>
+                <tbody id="metrics-table-body">
+                    {% for m in metrics.classification %}
+                    <tr>
+                        <td>{{ m.model_name }}</td>
+                        <td>{{ m.accuracy }}%</td>
+                        <td>{{ m.precision }}%</td>
+                        <td>{{ m.recall }}%</td>
+                        <td>{{ m.f1_score }}%</td>
+                        <td>{{ m.roc_auc }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
 
-        <!-- Before / After Performance Comparison -->
-        <div class="card">
-            <h2 class="card-title">Model Adaptation & Delta Metrics</h2>
-            
-            <div id="retrain-result-box" class="retrain-result-box">
-                <div class="kpi-grid">
-                    <div class="kpi-box">
-                        <span class="kpi-label">Samples Trained</span>
-                        <div class="kpi-value"><span id="delta-samples">{{ samples }}</span></div>
-                        <span class="kpi-subtext">Active Training Volume</span>
-                    </div>
-
-                    <div class="kpi-box">
-                        <span class="kpi-label">Classification Accuracy</span>
-                        <div class="kpi-value"><span id="delta-accuracy">{{ metrics.classification[0].accuracy }}</span>%</div>
-                        <span id="delta-badge" class="badge badge-success">Baseline Active</span>
-                    </div>
-                </div>
-
-                <div class="metrics-summary-box">
-                    <h3 class="section-subtitle">Active Model Performance Breakdown</h3>
-                    <table class="table-compact">
-                        <thead>
-                            <tr>
-                                <th>Model Name</th>
-                                <th>Accuracy</th>
-                                <th>Precision</th>
-                                <th>Recall</th>
-                                <th>F1-Score</th>
-                                <th>ROC-AUC</th>
-                            </tr>
-                        </thead>
-                        <tbody id="metrics-table-body">
-                            {% for m in metrics.classification %}
-                            <tr>
-                                <td>{{ m.model_name }}</td>
-                                <td>{{ m.accuracy }}%</td>
-                                <td>{{ m.precision }}%</td>
-                                <td>{{ m.recall }}%</td>
-                                <td>{{ m.f1_score }}%</td>
-                                <td>{{ m.roc_auc }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="regression-summary-box">
-                    <h3 class="section-subtitle">Linear Regression Error (Module 3)</h3>
-                    <div class="reg-kpi-row">
-                        <div class="reg-kpi"><span>Mean Absolute Error:</span> <strong id="reg-mae">{{ metrics.regression.mae }} min</strong></div>
-                        <div class="reg-kpi"><span>Root Mean Squared Error:</span> <strong id="reg-rmse">{{ metrics.regression.rmse }} min</strong></div>
-                        <div class="reg-kpi"><span>R-Squared Score:</span> <strong id="reg-r2">{{ metrics.regression.r2_score }}</strong></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <h3 class="section-subtitle">Linear regression error</h3>
+        <div class="meta-row"><span class="muted">Mean absolute error</span><strong id="reg-mae" class="num">{{ metrics.regression.mae }} min</strong></div>
+        <div class="meta-row"><span class="muted">Root mean squared error</span><strong id="reg-rmse" class="num">{{ metrics.regression.rmse }} min</strong></div>
+        <div class="meta-row"><span class="muted">R squared</span><strong id="reg-r2" class="num">{{ metrics.regression.r2_score }}</strong></div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        initRetrainPage();
-    });
-</script>
+<script>document.addEventListener('DOMContentLoaded', initRetrainPage);</script>
 {% endblock %}

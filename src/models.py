@@ -1,11 +1,8 @@
-import os
-import joblib
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, export_text
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
 
-from src.config import CACHE_DIR, RANDOM_STATE
+from src.config import RANDOM_STATE
 
 
 class DeliveryModelSuite:
@@ -14,7 +11,6 @@ class DeliveryModelSuite:
         self.tree_gini_model = None
         self.tree_entropy_model = None
         self.rf_model = None
-        self.svm_model = None
         self.logistic_model = None
         self.feature_names = []
 
@@ -41,14 +37,6 @@ class DeliveryModelSuite:
 
         self.logistic_model = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
         self.logistic_model.fit(X_train, y_train_clf)
-
-        # Train linear SVM on subsample for rapid inference and explainable margins
-        svm_sample_size = min(5000, len(X_train))
-        X_sub = X_train.iloc[:svm_sample_size] if hasattr(X_train, "iloc") else X_train[:svm_sample_size]
-        y_sub = y_train_clf[:svm_sample_size]
-
-        self.svm_model = SVC(kernel="rbf", probability=True, random_state=RANDOM_STATE, C=1.0)
-        self.svm_model.fit(X_sub, y_sub)
 
     def predict_sample(self, sample_transformed_df):
         predicted_minutes = float(self.regression_model.predict(sample_transformed_df)[0])
@@ -90,16 +78,3 @@ class DeliveryModelSuite:
             zip(self.feature_names, importances), key=lambda x: x[1], reverse=True
         )
         return [{"feature": f, "importance": round(float(v), 4)} for f, v in sorted_pairs]
-
-    def save(self, filepath=None):
-        if filepath is None:
-            filepath = CACHE_DIR / "model_suite.joblib"
-        joblib.dump(self, filepath)
-
-    @classmethod
-    def load(cls, filepath=None):
-        if filepath is None:
-            filepath = CACHE_DIR / "model_suite.joblib"
-        if os.path.exists(filepath):
-            return joblib.load(filepath)
-        return None

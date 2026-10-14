@@ -11,6 +11,7 @@ from src.config import (
     CATEGORICAL_FEATURES,
     TARGET_REGRESSION,
     TARGET_CLASSIFICATION,
+    DELAY_THRESHOLD_MINUTES,
 )
 
 
@@ -32,65 +33,90 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
     return radius_km * c
 
 
-def clean_food_delivery_data(raw_df: pd.DataFrame) -> pd.DataFrame:
-    df = raw_df.copy()
+RENAME_MAP = {
+    "Delivery_person_Age": "delivery_person_age",
+    "Delivery_person_Ratings": "delivery_person_ratings",
+    "courier_rating": "delivery_person_ratings",
+    "rider_rating": "delivery_person_ratings",
+    "Weather_conditions": "weather_conditions",
+    "Weatherconditions": "weather_conditions",
+    "weather_condition": "weather_conditions",
+    "weather": "weather_conditions",
+    "Road_traffic_density": "road_traffic_density",
+    "traffic_level": "road_traffic_density",
+    "traffic": "road_traffic_density",
+    "Vehicle_condition": "vehicle_condition",
+    "Type_of_order": "type_of_order",
+    "Type_of_vehicle": "type_of_vehicle",
+    "courier_type": "type_of_vehicle",
+    "vehicle_type": "type_of_vehicle",
+    "batch_size": "multiple_deliveries",
+    "orders_in_rider_queue": "multiple_deliveries",
+    "courier_distance_km": "distance_km",
+    "Festival": "festival",
+    "City": "city",
+    "Time_taken (min)": "time_taken_min",
+    "Time_taken(min)": "time_taken_min",
+    "actual_delivery_minutes": "time_taken_min",
+    "delivery_time_min": "time_taken_min",
+}
 
-    rename_map = {
-        "Delivery_person_Age": "delivery_person_age",
-        "Delivery_person_Ratings": "delivery_person_ratings",
-        "Weather_conditions": "weather_conditions",
-        "Weatherconditions": "weather_conditions",
-        "Road_traffic_density": "road_traffic_density",
-        "Vehicle_condition": "vehicle_condition",
-        "Type_of_order": "type_of_order",
-        "Type_of_vehicle": "type_of_vehicle",
-        "multiple_deliveries": "multiple_deliveries",
-        "Festival": "festival",
-        "City": "city",
-        "Time_taken (min)": "time_taken_min",
-        "Time_taken(min)": "time_taken_min",
-    }
-    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+# Line up category spellings from the extra datasets with the Kaggle ones
+VALUE_MAP = {
+    "road_traffic_density": {"low": "Low", "medium": "Medium", "high": "High", "severe": "Jam", "jam": "Jam"},
+    "type_of_vehicle": {
+        "bike": "motorcycle", "motorcycle": "motorcycle", "scooter": "scooter",
+        "electric scooter": "electric_scooter", "bicycle": "bicycle",
+    },
+    "weather_conditions": {"clear": "Sunny"},
+    "city": {
+        c: "Metropolitian"
+        for c in ["mumbai", "delhi", "bengaluru", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad"]
+    },
+}
+
+
+def has_target_column(columns) -> bool:
+    return any(RENAME_MAP.get(c, c) == TARGET_REGRESSION for c in columns)
+
+
+def clean_food_delivery_data(raw_df: pd.DataFrame) -> pd.DataFrame:
+    # Merged frames can carry both spellings of a column, so coalesce instead of renaming
+    df = raw_df.copy()
+    for src, dst in RENAME_MAP.items():
+        if src in df.columns:
+            df[dst] = df[src] if dst not in df.columns else df[dst].fillna(df[src])
 
     if "distance_km" not in df.columns:
-        if (
-            "Restaurant_latitude" in df.columns
-            and "Delivery_location_latitude" in df.columns
-        ):
-            distances = calculate_haversine_distance(
-                df["Restaurant_latitude"],
-                df["Restaurant_longitude"],
-                df["Delivery_location_latitude"],
-                df["Delivery_location_longitude"],
-            )
-            median_dist = distances[(distances > 0.1) & (distances < 50)].median()
-            distances = distances.where(
-                (distances > 0.1) & (distances < 50), median_dist
-            )
-            df["distance_km"] = distances
-        else:
-            df["distance_km"] = 5.0
-
-    if df["time_taken_min"].dtype == object:
-        df["time_taken_min"] = (
-            df["time_taken_min"].astype(str).str.extract(r"(\d+)")[0].astype(float)
+        df["distance_km"] = np.nan
+    if "Restaurant_latitude" in df.columns:
+        haversine = calculate_haversine_distance(
+            df["Restaurant_latitude"],
+            df["Restaurant_longitude"],
+            df["Delivery_location_latitude"],
+            df["Delivery_location_longitude"],
         )
+        haversine = haversine.where((haversine > 0.1) & (haversine < 50))
+        df["distance_km"] = df["distance_km"].fillna(haversine)
 
+    df[TARGET_REGRESSION] = pd.to_numeric(
+        df[TARGET_REGRESSION].astype(str).str.extract(r"(\d+\.?\d*)")[0], errors="coerce"
+    )
+    df = df.dropna(subset=[TARGET_REGRESSION])
+
+    missing = pd.Series(np.nan, index=df.index)
     for col in NUMERICAL_FEATURES:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-            df[col] = df[col].fillna(df[col].median())
+        df[col] = pd.to_numeric(df.get(col, missing), errors="coerce")
+        df[col] = df[col].fillna(df[col].median()).fillna(0.0)
 
     for col in CATEGORICAL_FEATURES:
-        if col in df.columns:
-            df[col] = (
-                df[col].astype(str).str.strip().str.replace("conditions ", "")
-            )
-            mode_val = df[col].mode()[0] if not df[col].empty else "Unknown"
-            df[col] = df[col].replace({"nan": mode_val, "NaN": mode_val, "": mode_val})
+        values = df.get(col, missing)
+        values = values.astype(str).str.strip().str.replace("conditions ", "")
+        values = values.where(~values.isin(["nan", "NaN", "None", ""]))
+        values = values.str.lower().map(VALUE_MAP.get(col, {})).fillna(values)
+        df[col] = values.fillna(values.mode()[0] if values.notna().any() else "Unknown")
 
-    df[TARGET_CLASSIFICATION] = (df[TARGET_REGRESSION] > 30).astype(int)
-
+    df[TARGET_CLASSIFICATION] = (df[TARGET_REGRESSION] > DELAY_THRESHOLD_MINUTES).astype(int)
     return df
 
 
