@@ -1,0 +1,4 @@
+__pycache__/
+.DS_Store
+*.pyc
+dataset/temp_uploaded.csv

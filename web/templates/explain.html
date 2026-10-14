@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Backend & Algorithm Mechanics | LogiPulse AI{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1>Real-Time Backend & Algorithm Mechanics</h1>
+        <p class="page-description">
+            Complete transparency into the mathematical formulations, evaluation metrics, and unsupervised clustering structures operating in the backend. This page explains how training, testing, and optimization are executed in real time.
+        </p>
+    </div>
+
+    <!-- Section 1: Confusion Matrix & ROC-AUC -->
+    <div class="grid-2-col">
+        <div class="card">
+            <h2 class="card-title">1. Confusion Matrix Heatmap (Module 5)</h2>
+            <div id="confusion-matrix-chart" class="chart-container" style="height: 320px;"></div>
+            <div class="formula-box">
+                <p><strong>Formulas Executed in Backend:</strong></p>
+                <code>Accuracy = (TP + TN) / (TP + TN + FP + FN)</code><br>
+                <code>Precision = TP / (TP + FP)  |  Recall = TP / (TP + FN)</code><br>
+                <code>F1-Score = 2 * (Precision * Recall) / (Precision + Recall)</code>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">2. Receiver Operating Characteristic (ROC-AUC)</h2>
+            <div id="roc-curve-chart" class="chart-container" style="height: 320px;"></div>
+            <div class="formula-box">
+                <p><strong>Model Discriminative Power:</strong></p>
+                <p>AUC = <strong>{{ metrics.classification[0].roc_auc }}</strong>. The curve maps Sensitivity (True Positive Rate) against (1 - Specificity) across 50 classification thresholds.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 2: Unsupervised Learning (K-Means Elbow & PCA) -->
+    <div class="grid-2-col" style="margin-top: 24px;">
+        <div class="card">
+            <h2 class="card-title">3. K-Means Elbow Curve (Module 4 Practical 1)</h2>
+            <div id="elbow-chart" class="chart-container" style="height: 320px;"></div>
+            <div class="formula-box">
+                <p><strong>Within-Cluster Sum of Squares (Inertia):</strong></p>
+                <code>WCSS = Sum_{j=1}^{k} Sum_{x in S_j} ||x - mu_j||^2</code>
+                <p>The inflection point (elbow) mathematically confirms <strong>k = 3</strong> as the optimal cluster partition.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">4. PCA 2D Cluster Space (Module 4 Practical 2)</h2>
+            <div id="pca-scatter-chart" class="chart-container" style="height: 320px;"></div>
+            <div class="formula-box">
+                <p><strong>Dimensionality Reduction:</strong></p>
+                <p>Top 2 Eigenvectors capture <strong>{{ clusters.explained_variance[0] }}%</strong> and <strong>{{ clusters.explained_variance[1] }}%</strong> of total dataset variance.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cluster Profiles Table -->
+    <div class="card" style="margin-top: 24px;">
+        <h2 class="card-title">K-Means Discovered Operational Delivery Zones</h2>
+        <table class="table-compact">
+            <thead>
+                <tr>
+                    <th>Cluster ID</th>
+                    <th>Identified Profile</th>
+                    <th>Orders Classified</th>
+                    <th>Mean Delivery Time</th>
+                    <th>Mean Distance</th>
+                    <th>Mean Courier Rating</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for prof in clusters.profiles %}
+                <tr>
+                    <td><strong>Cluster {{ prof.cluster_id }}</strong></td>
+                    <td>{{ prof.name }}</td>
+                    <td>{{ prof.order_count }}</td>
+                    <td>{{ prof.avg_delivery_time }} min</td>
+                    <td>{{ prof.avg_distance_km }} km</td>
+                    <td>{{ prof.avg_rating }} / 5.0</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section 3: Feature Importance & Decision Tree Rules -->
+    <div class="grid-2-col" style="margin-top: 24px;">
+        <div class="card">
+            <h2 class="card-title">5. Random Forest Feature Weights</h2>
+            <div id="feature-importance-chart" class="chart-container" style="height: 320px;"></div>
+            <div class="formula-box">
+                <p>Normalized Gini importance score across all input feature split contributions.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">6. Decision Tree Branch Rules (Module 3 Practical 4)</h2>
+            <div class="code-preview-box">
+                <pre><code>{{ tree_rules }}</code></pre>
+            </div>
+            <div class="formula-box">
+                <p><strong>Gini Impurity Formula:</strong></p>
+                <code>Gini = 1 - Sum_{i=1}^{C} (p_i)^2</code>
+                <p>Evaluates purity gain at each feature partition in the training pipeline.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 4: A* Search Mathematical Mechanics -->
+    <div class="card" style="margin-top: 24px;">
+        <h2 class="card-title">7. A* Heuristic Search Formulation (Module 2)</h2>
+        <div class="grid-3-col">
+            <div class="mechanic-card">
+                <h3>f(n) = g(n) + h(n)</h3>
+                <p><strong>Evaluation Function:</strong> Balances exact accumulated cost from start node with the estimated remaining distance to destination.</p>
+            </div>
+            <div class="mechanic-card">
+                <h3>Haversine Heuristic h(n)</h3>
+                <p><strong>Admissibility Guarantee:</strong> Computes the great-circle Euclidean distance, ensuring h(n) never overestimates actual road travel distance.</p>
+            </div>
+            <div class="mechanic-card">
+                <h3>Dynamic Edge Penalty</h3>
+                <p><strong>ML Synergy:</strong> Multiplies road segments by live predicted traffic density factor (Low: 1.0x, Medium: 1.35x, Jam: 2.2x).</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const serverMetrics = {{ metrics|tojson }};
+    const serverClusters = {{ clusters|tojson }};
+    const serverFeatureImportances = {{ feature_importances|tojson }};
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initExplainCharts(serverMetrics, serverClusters, serverFeatureImportances);
+    });
+</script>
+{% endblock %}
