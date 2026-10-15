@@ -80,10 +80,10 @@ Stop the server with `Ctrl+C`. Next time, just activate the virtual environment 
 
 ## Frontend
 
-The interface is a warm editorial "print" design: cream ground, ink type, one rationed red accent, square corners, 1.5px ink rules, and a dark loam ground for the scroll stages. Only the frontend changed in this redesign. `web/app.py`, `src/`, the data and the models are untouched.
+The interface is an editorial design: sage-stone ground, forest ink type, one rationed tangerine accent, square corners, 1.5px ink rules, and a dark forest loam ground for the scroll stages. Only the frontend changed in this redesign. `web/app.py`, `src/`, the data and the models are untouched.
 
 **Design tokens** (`web/static/css/style.css`, `:root`)
-- Palette: cream `#e7e2d8`, ink `#171717`, red `#ef493c`, deep red `#b92725`, paper `#fffdf8`, loam `#241a12`.
+- Palette: sage-stone `#eaede4`, forest ink `#13231b`, tangerine `#e2682e` (the variable is still named `--red`), deep tangerine `#a8461c`, paper `#fbfcf7`, forest loam `#15291f`, saffron `#c98a12`, green `#3e7a56`. These were chosen by the assistant. To change the theme, edit the values in the `:root` block.
 - Type: Anton for display headings, Inter for body text, Martian Mono for labels, numbers and status lines. Fonts load from Google Fonts with system fallbacks.
 - Chart and route colours reuse the same variables, so Plotly and the map follow the palette.
 
@@ -104,7 +104,7 @@ The tool (form, prediction, route map, classifier votes, A* table) follows and w
 - Charts draw in once when they first appear. The A* route draws segment by segment on each new result.
 
 **Performance tiers**
-- On load the page picks `tier-full` (4 or more CPU cores and 4 GB or more memory, where the browser reports them) or `tier-lite`.
+- On load the page picks `tier-full` (2 or more CPU cores and 2 GB or more memory, where the browser reports them) or `tier-lite`.
 - If the first second of frames averages over 24 ms, full mode switches to lite.
 - Lite mode removes pinning and canvas loops, and shows the stages as a normal page. Reveals and the route stay on.
 - Reduced motion (`prefers-reduced-motion: reduce`) shows the final state of everything with no movement.
